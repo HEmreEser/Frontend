@@ -68,7 +68,6 @@ class _RegistrationPageState extends ConsumerState<RegistrationPage> {
                         final email = emailController.text.trim();
                         final password = passwordController.text;
                         final passwordRepeat = passwordRepeatController.text;
-
                         if (!RegExp(
                           r'^[a-zA-Z0-9._%+-]+@hm\.edu$',
                         ).hasMatch(email)) {
@@ -91,12 +90,10 @@ class _RegistrationPageState extends ConsumerState<RegistrationPage> {
                               .setError('Passwörter stimmen nicht überein!');
                           return;
                         }
-
                         final result = await ref
                             .read(authProvider.notifier)
                             .register(email, password);
-
-                        if (result == true && mounted) {
+                        if (result && mounted) {
                           Navigator.of(
                             context,
                           ).pushReplacementNamed('/location');

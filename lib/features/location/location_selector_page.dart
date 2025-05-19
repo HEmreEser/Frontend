@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// Simple Provider (du kannst stattdessen auch SharedPreferences nehmen)
+// Provider für den Standort
 final selectedLocationProvider = StateProvider<String?>((ref) => null);
 
 class LocationSelectorPage extends ConsumerWidget {
@@ -9,6 +9,9 @@ class LocationSelectorPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(selectedLocationProvider);
+
+    // Hilfsfunktion: Standort setzen und immer zur Startseite
     void selectLocation(String location) {
       ref.read(selectedLocationProvider.notifier).state = location;
       Navigator.of(context).pushReplacementNamed('/');
@@ -20,18 +23,20 @@ class LocationSelectorPage extends ConsumerWidget {
         padding: const EdgeInsets.all(24),
         children: [
           ElevatedButton(
-            onPressed: () => selectLocation('Pasing'),
-            child: const Text('Pasing'),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
             onPressed: () => selectLocation('Lothstraße'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  selected == 'Lothstraße' ? Colors.blueAccent : null,
+            ),
             child: const Text('Lothstraße'),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: () => selectLocation('Karlstraße'),
-            child: const Text('Karlstraße'),
+            onPressed: () => selectLocation('Pasing'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: selected == 'Pasing' ? Colors.blueAccent : null,
+            ),
+            child: const Text('Pasing'),
           ),
         ],
       ),

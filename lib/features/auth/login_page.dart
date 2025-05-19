@@ -28,7 +28,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Anmeldung')),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
@@ -68,7 +68,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         final result = await ref
                             .read(authProvider.notifier)
                             .login(email, password);
-                        if (result == true && mounted) {
+                        if (result && mounted) {
                           Navigator.of(
                             context,
                           ).pushReplacementNamed('/location');

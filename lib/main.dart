@@ -1,82 +1,99 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import 'features/auth/login_page.dart';
-import 'features/auth/registration_page.dart';
-import 'features/location/location_selector_page.dart';
-import 'features/home/user_home_page.dart';
+import 'features/auth/auth_service.dart';
 import 'features/profile/my_account_page.dart';
 import 'features/rental/my_rentals_page.dart';
-import 'features/equipment/equipment_detail_page.dart';
-// import 'features/home/admin_home_page.dart'; // Falls vorhanden, sonst auskommentieren oder erstellen!
+
+// Beispiel einer einfachen LoginPage, du kannst sie natürlich anpassen!
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  String? error;
+
+  Future<void> _login() async {
+    setState(() => error = null);
+    try {
+      await AuthService().login(
+        emailController.text.trim(),
+        passwordController.text,
+      );
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/account');
+      }
+    } catch (e) {
+      setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Login')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: emailController,
+              decoration: const InputDecoration(labelText: 'E-Mail'),
+            ),
+            TextField(
+              controller: passwordController,
+              decoration: const InputDecoration(labelText: 'Passwort'),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+            if (error != null)
+              Text(error!, style: const TextStyle(color: Colors.red)),
+            ElevatedButton(onPressed: _login, child: const Text('Einloggen')),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 void main() {
-  runApp(ProviderScope(child: const MyApp()));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  Future<String?> _getInitialRoute() async {
+    final token = await AuthService.getToken();
+    return (token != null && token.isNotEmpty) ? '/account' : '/login';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Equipment Verleih',
-      debugShowCheckedModeBanner: false,
-      initialRoute: '/login',
-      onGenerateRoute: (settings) {
-        if (settings.name == '/equipmentdetail') {
-          final args = settings.arguments;
-          int? equipmentId;
-          if (args is int) {
-            equipmentId = args;
-          } else if (args is Map && args['id'] is int) {
-            equipmentId = args['id'] as int;
-          } else if (args is Map &&
-              args['equipment'] != null &&
-              args['equipment']['id'] is int) {
-            equipmentId = args['equipment']['id'] as int;
-          }
-          if (equipmentId != null) {
-            return MaterialPageRoute(
-              builder:
-                  (context) => EquipmentDetailPage(equipmentId: equipmentId!),
-            );
-          } else {
-            return MaterialPageRoute(
-              builder:
-                  (_) => const Scaffold(
-                    body: Center(
-                      child: Text('Fehler: Equipment-ID nicht gefunden'),
-                    ),
-                  ),
-            );
-          }
+    return FutureBuilder<String?>(
+      future: _getInitialRoute(),
+      builder: (context, snapshot) {
+        String initialRoute = '/login';
+        if (snapshot.connectionState == ConnectionState.done &&
+            snapshot.data != null) {
+          initialRoute = snapshot.data!;
         }
-        switch (settings.name) {
-          case '/login':
-            return MaterialPageRoute(builder: (_) => const LoginPage());
-          case '/register':
-            return MaterialPageRoute(builder: (_) => const RegistrationPage());
-          case '/location':
-            return MaterialPageRoute(
-              builder: (_) => const LocationSelectorPage(),
-            );
-          case '/':
-            return MaterialPageRoute(builder: (_) => const UserHomePage());
-          case '/account':
-            return MaterialPageRoute(builder: (_) => const MyAccountPage());
-          case '/myrentals':
-            return MaterialPageRoute(builder: (_) => const MyRentalsPage());
-          // case '/admin':
-          //   return MaterialPageRoute(builder: (_) => const AdminHomePage()); // Nur falls Widget existiert!
-          default:
-            return MaterialPageRoute(
-              builder:
-                  (_) => const Scaffold(
-                    body: Center(child: Text('Seite nicht gefunden')),
-                  ),
-            );
-        }
+        return MaterialApp(
+          title: 'Verleih App',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            useMaterial3: true,
+          ),
+          initialRoute: initialRoute,
+          routes: {
+            '/login': (context) => const LoginPage(),
+            '/account': (context) => const MyAccountPage(),
+            '/rentals': (context) => const MyRentalsPage(),
+          },
+        );
       },
     );
   }
