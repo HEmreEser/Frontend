@@ -38,20 +38,21 @@ class _UserHomePageState extends State<UserHomePage> {
     });
 
     try {
-      // Backend-URL anpassen!
       String url = 'http://localhost:8080/api/equipment';
-      // Kategorie-Filter
+      Map<String, String> params = {};
+
+      // Kategorie-Filter nur setzen, wenn nicht 'Alle'
       if (selectedCategory != 'Alle') {
-        url =
-            'http://localhost:8080/api/equipment/category/${categoryToId(selectedCategory)}';
+        params['categoryId'] = categoryToId(selectedCategory).toString();
       }
-      // Optional: Verfügbarkeit filtern (wenn Backend-Endpunkt vorhanden)
-      // Hier Beispiel: ?available=true
-      if (onlyAvailable && selectedCategory == 'Alle') {
-        url = 'http://localhost:8080/api/equipment/filter?available=true';
-      } else if (onlyAvailable && selectedCategory != 'Alle') {
+      if (onlyAvailable) {
+        params['available'] = 'true';
+      }
+
+      if (params.isNotEmpty) {
         url =
-            'http://localhost:8080/api/equipment/filter?categoryId=${categoryToId(selectedCategory)}&available=true';
+            'http://localhost:8080/api/equipment/filter?' +
+            params.entries.map((e) => '${e.key}=${e.value}').join('&');
       }
 
       final response = await http.get(Uri.parse(url));
@@ -76,7 +77,6 @@ class _UserHomePageState extends State<UserHomePage> {
     }
   }
 
-  // Mapping für deine Kategorien zu Backend-IDs (hier beispielhaft)
   int categoryToId(String cat) {
     switch (cat) {
       case 'Draußensport':
@@ -94,7 +94,6 @@ class _UserHomePageState extends State<UserHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Suche und Filter lokal anwenden
     final filtered =
         equipments
             .where(
@@ -125,127 +124,34 @@ class _UserHomePageState extends State<UserHomePage> {
               title: const Text('Meine Ausleihen'),
               onTap: () => Navigator.pushNamed(context, '/myrentals'),
             ),
-            ListTile(
-              leading: const Icon(Icons.account_box),
-              title: const Text('Mein Konto'),
-              onTap: () => Navigator.pushNamed(context, '/account'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Abmelden'),
-              onTap: () {
-                // Token löschen etc.
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/login',
-                  (r) => false,
-                );
-              },
-            ),
           ],
         ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Suchen...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+      body:
+          loading
+              ? const Center(child: CircularProgressIndicator())
+              : error != null
+              ? Center(child: Text(error!))
+              : ListView.builder(
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final eq = filtered[index];
+                  return ListTile(
+                    title: Text(eq['name'] ?? ''),
+                    subtitle: Text(
+                      '${eq['categoryName'] ?? ''} | ${eq['locationName'] ?? ''}',
+                    ),
+                    trailing: eq['available'] ? const Icon(Icons.check) : null,
+                    onTap: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/equipmentdetail',
+                        arguments: {'id': eq['id']},
+                      );
+                    },
+                  );
+                },
               ),
-              onChanged:
-                  (val) => setState(() {
-                    search = val;
-                  }),
-            ),
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children:
-                    categories
-                        .map(
-                          (cat) => Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4.0,
-                            ),
-                            child: ChoiceChip(
-                              label: Text(cat),
-                              selected: selectedCategory == cat,
-                              onSelected: (_) {
-                                setState(() {
-                                  selectedCategory = cat;
-                                });
-                                fetchEquipments();
-                              },
-                            ),
-                          ),
-                        )
-                        .toList(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                const Text("Nur verfügbare anzeigen"),
-                Switch(
-                  value: onlyAvailable,
-                  onChanged: (val) {
-                    setState(() {
-                      onlyAvailable = val;
-                    });
-                    fetchEquipments();
-                  },
-                ),
-              ],
-            ),
-            const Divider(),
-            if (loading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
-            else if (error != null)
-              Expanded(child: Center(child: Text(error!)))
-            else
-              Expanded(
-                child:
-                    filtered.isEmpty
-                        ? const Center(child: Text('Keine Ergebnisse'))
-                        : ListView.builder(
-                          itemCount: filtered.length,
-                          itemBuilder: (context, idx) {
-                            final eq = filtered[idx];
-                            return Card(
-                              child: ListTile(
-                                leading: Icon(
-                                  (eq['available'] ?? true)
-                                      ? Icons.check_circle
-                                      : Icons.cancel,
-                                  color:
-                                      (eq['available'] ?? true)
-                                          ? Colors.green
-                                          : Colors.red,
-                                ),
-                                title: Text(eq['name'] ?? ''),
-                                subtitle: Text(
-                                  '${eq['category']['name'] ?? ''} • ${eq['description'] ?? ''}',
-                                ),
-                                onTap:
-                                    () => Navigator.pushNamed(
-                                      context,
-                                      '/equipmentdetail',
-                                      arguments: eq,
-                                    ),
-                              ),
-                            );
-                          },
-                        ),
-              ),
-          ],
-        ),
-      ),
-      floatingActionButton: null,
     );
   }
 }

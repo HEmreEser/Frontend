@@ -1,54 +1,58 @@
 import 'package:flutter/material.dart';
-import '../../models/user_response.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_service.dart';
+import '../../models/user_response.dart';
 
-class MyAccountPage extends StatelessWidget {
+class MyAccountPage extends StatefulWidget {
   const MyAccountPage({Key? key}) : super(key: key);
 
-  void _logout(BuildContext context) async {
-    // Beispiel für einfachen Logout: Token löschen und zur Login-Seite navigieren
-    // Hier solltest du stattdessen dein echtes Auth-Handling nutzen!
-    // z.B. SharedPreferences prefs = await SharedPreferences.getInstance();
-    // await prefs.remove('token');
-    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+  @override
+  State<MyAccountPage> createState() => _MyAccountPageState();
+}
+
+class _MyAccountPageState extends State<MyAccountPage> {
+  late Future<UserResponse> myProfileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    myProfileFuture = _fetchProfile();
+  }
+
+  Future<UserResponse> _fetchProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null || token.isEmpty) {
+      throw Exception("Du bist nicht eingeloggt.");
+    }
+    return await UserService().fetchMyProfile(token);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Mein Konto")),
+      appBar: AppBar(title: const Text('Mein Konto')),
       body: FutureBuilder<UserResponse>(
-        future: UserService().fetchMyProfile(),
+        future: myProfileFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.hasError) {
-            return const Center(
-              child: Text("Fehler beim Laden deines Profils."),
-            );
+          if (snapshot.hasError) {
+            return Center(child: Text("Fehler: ${snapshot.error}"));
           }
-          final profile = snapshot.data!;
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Name: ${profile.name}",
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Text("E-Mail: ${profile.email}"),
-                Text(
-                  "Registriert seit: ${profile.createdAt.toLocal().toString().split(" ").first}",
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => _logout(context),
-                  child: const Text("Logout"),
-                ),
-              ],
-            ),
+          if (!snapshot.hasData) {
+            return const Center(child: Text("Keine Profildaten gefunden."));
+          }
+          final user = snapshot.data!;
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text('Name: ${user.name}'),
+              Text('E-Mail: ${user.email}'),
+              Text('Rolle: ${user.role}'),
+              // Weitere Felder je nach Backend-Response ergänzen
+            ],
           );
         },
       ),
