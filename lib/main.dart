@@ -11,7 +11,7 @@ class KreiselApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Kreisel',
+      title: 'HM Sportsgear',
       theme: ThemeData.dark().copyWith(
         primaryColor: Color(0xFF007AFF),
         scaffoldBackgroundColor: Color(0xFF000000),
@@ -92,6 +92,44 @@ class Item {
   }
 }
 
+class Rental {
+  final int id;
+  final int itemId;
+  final String itemName;
+  final int userId;
+  final DateTime startDate;
+  final DateTime endDate;
+  final String status; // 'ACTIVE', 'RETURNED', 'OVERDUE'
+  final String? itemBrand;
+  final String? itemSize;
+
+  Rental({
+    required this.id,
+    required this.itemId,
+    required this.itemName,
+    required this.userId,
+    required this.startDate,
+    required this.endDate,
+    required this.status,
+    this.itemBrand,
+    this.itemSize,
+  });
+
+  factory Rental.fromJson(Map<String, dynamic> json) {
+    return Rental(
+      id: json['id'],
+      itemId: json['itemId'],
+      itemName: json['itemName'],
+      userId: json['userId'],
+      startDate: DateTime.parse(json['startDate']),
+      endDate: DateTime.parse(json['endDate']),
+      status: json['status'],
+      itemBrand: json['itemBrand'],
+      itemSize: json['itemSize'],
+    );
+  }
+}
+
 // API Service
 class ApiService {
   static const String baseUrl = 'http://localhost:8080/api';
@@ -167,6 +205,207 @@ class ApiService {
   }
 }
 
+class ApiServiceExtension {
+  static Future<void> rentItem(int itemId, String formattedDate) async {
+    final userId = ApiService.currentUser?.userId;
+    if (userId == null) {
+      throw Exception('Benutzer nicht angemeldet.');
+    }
+
+    final response = await http.post(
+      Uri.parse('${ApiService.baseUrl}/rentals/user/$userId/rent'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'itemId': itemId, 'endDate': formattedDate}),
+    );
+
+    if (response.statusCode != 200) {
+      final errorData = jsonDecode(response.body);
+      throw Exception(errorData['message'] ?? 'Ausleihe fehlgeschlagen');
+    }
+  }
+
+  static Future<List<Rental>> getUserRentals() async {
+    final response = await http.get(
+      Uri.parse(
+        '${ApiService.baseUrl}/rentals/user/${ApiService.currentUser?.userId}',
+      ),
+    );
+
+    if (response.statusCode == 200) {
+      List<dynamic> jsonList = jsonDecode(response.body);
+      return jsonList.map((json) => Rental.fromJson(json)).toList();
+    } else {
+      throw Exception('Fehler beim Laden der Ausleihen');
+    }
+  }
+
+  static Future<void> returnItem(int rentalId) async {
+    final response = await http.put(
+      Uri.parse('${ApiService.baseUrl}/rentals/$rentalId/return'),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Rückgabe fehlgeschlagen');
+    }
+  }
+
+  static Future<void> extendRental(int rentalId, DateTime newEndDate) async {
+    final formattedDate =
+        "${newEndDate.year}-${newEndDate.month.toString().padLeft(2, '0')}-${newEndDate.day.toString().padLeft(2, '0')}";
+
+    final response = await http.put(
+      Uri.parse('${ApiService.baseUrl}/rentals/$rentalId/extend'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'newEndDate': formattedDate}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Verlängerung fehlgeschlagen');
+    }
+  }
+}
+
+class RentItemDialog extends StatefulWidget {
+  final Item item;
+  final VoidCallback onRented;
+
+  RentItemDialog({required this.item, required this.onRented});
+
+  @override
+  _RentItemDialogState createState() => _RentItemDialogState();
+}
+
+class _RentItemDialogState extends State<RentItemDialog> {
+  int selectedMonths = 1; // Standard: 1 Monat
+  bool isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final returnDate = _calculateReturnDate();
+    final formattedDate =
+        "${returnDate.year}-${returnDate.month.toString().padLeft(2, '0')}-${returnDate.day.toString().padLeft(2, '0')}";
+
+    return CupertinoAlertDialog(
+      title: Text('${widget.item.name} ausleihen'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(height: 16),
+          if (widget.item.brand != null)
+            Text(
+              'Marke: ${widget.item.brand}',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          if (widget.item.size != null)
+            Text(
+              'Größe: ${widget.item.size}',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          SizedBox(height: 16),
+          Text('Ausleihdauer wählen:'),
+          SizedBox(height: 16),
+          CupertinoSegmentedControl<int>(
+            groupValue: selectedMonths,
+            children: {
+              1: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('1 Month'),
+              ),
+              2: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('2 Months'),
+              ),
+              3: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('3 Months'),
+              ),
+            },
+            onValueChanged: (int value) {
+              setState(() {
+                selectedMonths = value;
+              });
+            },
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Rückgabedatum: $formattedDate',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+          ),
+        ],
+      ),
+      actions: [
+        CupertinoDialogAction(
+          child: Text('Abbrechen'),
+          onPressed: () => Navigator.pop(context),
+        ),
+        CupertinoDialogAction(
+          child:
+              isLoading
+                  ? CupertinoActivityIndicator()
+                  : Text(
+                    'Jetzt ausleihen',
+                    style: TextStyle(color: Colors.white),
+                  ),
+          onPressed: isLoading ? null : _rentItem,
+        ),
+      ],
+    );
+  }
+
+  DateTime _calculateReturnDate() {
+    return DateTime.now().add(Duration(days: 30 * selectedMonths));
+  }
+
+  void _rentItem() async {
+    setState(() => isLoading = true);
+
+    try {
+      final returnDate = _calculateReturnDate();
+      final formattedDate =
+          "${returnDate.year}-${returnDate.month.toString().padLeft(2, '0')}-${returnDate.day.toString().padLeft(2, '0')}";
+
+      await ApiServiceExtension.rentItem(widget.item.id, formattedDate);
+      Navigator.pop(context);
+      widget.onRented();
+
+      showCupertinoDialog(
+        context: context,
+        builder:
+            (context) => CupertinoAlertDialog(
+              title: Text('Erfolgreich ausgeliehen'),
+              content: Text(
+                '${widget.item.name} wurde bis zum $formattedDate reserviert.',
+              ),
+              actions: [
+                CupertinoDialogAction(
+                  child: Text('OK'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+      );
+    } catch (e) {
+      print('Fehler beim Ausleihen: $e');
+      showCupertinoDialog(
+        context: context,
+        builder:
+            (context) => CupertinoAlertDialog(
+              title: Text('Fehler beim Ausleihen'),
+              content: Text(e.toString()),
+              actions: [
+                CupertinoDialogAction(
+                  child: Text('OK'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+      );
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+}
+
 // Login Page
 class LoginPage extends StatefulWidget {
   @override
@@ -205,7 +444,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
               SizedBox(height: 32),
               Text(
-                'Kreisel',
+                'HM Sportsgear',
                 style: TextStyle(
                   fontSize: 36,
                   fontWeight: FontWeight.bold,
@@ -616,6 +855,22 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            CupertinoPageRoute(
+                              builder: (context) => MyRentalsPage(),
+                            ),
+                          );
+                        },
+                        child: Icon(
+                          CupertinoIcons.person_2,
+                          color: Color(0xFF007AFF),
+                          size: 28,
+                        ),
+                      ),
                     ],
                   ),
                   SizedBox(height: 16),
@@ -804,6 +1059,21 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildInfoChip(String label) {
+    return Container(
+      margin: EdgeInsets.only(right: 8),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label.toLowerCase(),
+        style: TextStyle(color: Colors.white70, fontSize: 12),
+      ),
+    );
+  }
+
   Widget _buildItemCard(Item item) {
     return Container(
       margin: EdgeInsets.only(bottom: 16),
@@ -881,23 +1151,36 @@ class _HomePageState extends State<HomePage> {
                 if (item.zustand != null) _buildInfoChip(item.zustand),
               ],
             ),
+            if (item.available)
+              Padding(
+                padding: EdgeInsets.only(top: 16),
+                child: Container(
+                  width: double.infinity,
+                  child: CupertinoButton(
+                    color: Color(0xFF007AFF),
+                    borderRadius: BorderRadius.circular(12),
+                    onPressed: () {
+                      showCupertinoDialog(
+                        context: context,
+                        builder:
+                            (context) => RentItemDialog(
+                              item: item,
+                              onRented: _loadItems,
+                            ),
+                      );
+                    },
+                    child: Text(
+                      'Ausleihen',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildInfoChip(String text) {
-    return Container(
-      margin: EdgeInsets.only(right: 8),
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Color(0xFF2C2C2E),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text.toLowerCase(),
-        style: TextStyle(color: Colors.white70, fontSize: 12),
       ),
     );
   }
@@ -917,5 +1200,472 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
     );
+  }
+}
+
+class MyRentalsPage extends StatefulWidget {
+  // UserId wird hier fix auf 3 gesetzt
+  final int userId = 3;
+
+  @override
+  _MyRentalsPageState createState() => _MyRentalsPageState();
+}
+
+class _MyRentalsPageState extends State<MyRentalsPage> {
+  List<Rental> _rentals = [];
+  bool _isLoading = true;
+
+  void _showAlert(String title, String message) {
+    showCupertinoDialog(
+      context: context,
+      builder:
+          (context) => CupertinoAlertDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              CupertinoDialogAction(
+                child: Text('OK'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRentals();
+  }
+
+  Future<void> _loadRentals() async {
+    try {
+      final rentals = await ApiServiceExtension.getUserRentals();
+      setState(() {
+        _rentals = rentals;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showAlert('Fehler', 'Ausleihen konnten nicht geladen werden');
+    }
+  }
+
+  Future<void> _returnItem(Rental rental) async {
+    showCupertinoDialog(
+      context: context,
+      builder:
+          (context) => CupertinoAlertDialog(
+            title: Text('Item zurückgeben'),
+            content: Text(
+              'Möchten Sie "${rental.itemName}" wirklich zurückgeben?',
+            ),
+            actions: [
+              CupertinoDialogAction(
+                child: Text('Abbrechen'),
+                onPressed: () => Navigator.pop(context),
+              ),
+              CupertinoDialogAction(
+                isDestructiveAction: true,
+                child: Text('Zurückgeben'),
+                onPressed: () async {
+                  Navigator.pop(context);
+                  try {
+                    await ApiServiceExtension.returnItem(rental.id);
+                    _showAlert('Erfolgreich', 'Item wurde zurückgegeben!');
+                    _loadRentals();
+                  } catch (e) {
+                    _showAlert(
+                      'Fehler',
+                      'Rückgabe fehlgeschlagen: ${e.toString()}',
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+    );
+  }
+
+  Future<void> _extendRental(Rental rental) async {
+    DateTime selectedDate = rental.endDate.add(Duration(days: 7));
+    final maxDate = DateTime.now().add(Duration(days: 60));
+
+    showCupertinoDialog(
+      context: context,
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              return CupertinoAlertDialog(
+                title: Text('Ausleihe verlängern'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(height: 16),
+                    Text('${rental.itemName}'),
+                    SizedBox(height: 16),
+                    Text('Neues Rückgabedatum:'),
+                    SizedBox(height: 16),
+                    Container(
+                      height: 200,
+                      child: CupertinoDatePicker(
+                        mode: CupertinoDatePickerMode.date,
+                        initialDateTime: selectedDate,
+                        minimumDate: rental.endDate.add(Duration(days: 1)),
+                        maximumDate: maxDate,
+                        onDateTimeChanged: (DateTime date) {
+                          setDialogState(() {
+                            selectedDate = date;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  CupertinoDialogAction(
+                    child: Text('Abbrechen'),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  CupertinoDialogAction(
+                    child: Text('Verlängern'),
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      try {
+                        await ApiServiceExtension.extendRental(
+                          rental.id,
+                          selectedDate,
+                        );
+                        _showAlert('Erfolgreich', 'Ausleihe wurde verlängert!');
+                        _loadRentals();
+                      } catch (e) {
+                        _showAlert(
+                          'Fehler',
+                          'Verlängerung fehlgeschlagen: ${e.toString()}',
+                        );
+                      }
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeRentals = _rentals.where((r) => r.status == 'ACTIVE').toList();
+    final pastRentals = _rentals.where((r) => r.status != 'ACTIVE').toList();
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: EdgeInsets.all(24),
+              child: Row(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.pop(context),
+                    child: Icon(CupertinoIcons.back, color: Color(0xFF007AFF)),
+                  ),
+                  SizedBox(width: 16),
+                  Text(
+                    'Meine Ausleien',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child:
+                  _isLoading
+                      ? Center(child: CupertinoActivityIndicator())
+                      : RefreshIndicator(
+                        onRefresh: _loadRentals,
+                        child: SingleChildScrollView(
+                          physics: AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Aktuelle Ausleihen
+                              Text(
+                                'Aktuelle Ausleihen (${activeRentals.length})',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              if (activeRentals.isEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFF1C1C1E),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    'Keine aktiven Ausleihen',
+                                    style: TextStyle(color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                )
+                              else
+                                ...activeRentals.map(
+                                  (rental) => _buildActiveRentalCard(rental),
+                                ),
+
+                              SizedBox(height: 32),
+
+                              // Vergangene Ausleihen
+                              Text(
+                                'Vergangene Ausleihen (${pastRentals.length})',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              if (pastRentals.isEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFF1C1C1E),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    'Keine vergangenen Ausleihen',
+                                    style: TextStyle(color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                )
+                              else
+                                ...pastRentals.map(
+                                  (rental) => _buildPastRentalCard(rental),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveRentalCard(Rental rental) {
+    final isOverdue = rental.endDate.isBefore(DateTime.now());
+    final daysUntilDue = rental.endDate.difference(DateTime.now()).inDays;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              isOverdue
+                  ? Color(0xFFFF453A)
+                  : daysUntilDue <= 3
+                  ? Color(0xFFFF9500)
+                  : Color(0xFF32D74B),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    rental.itemName,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color:
+                        isOverdue
+                            ? Color(0xFFFF453A)
+                            : daysUntilDue <= 3
+                            ? Color(0xFFFF9500)
+                            : Color(0xFF32D74B),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isOverdue
+                        ? 'Überfällig'
+                        : daysUntilDue <= 3
+                        ? 'Bald fällig'
+                        : 'Aktiv',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+
+            if (rental.itemBrand != null)
+              Text(
+                rental.itemBrand!,
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+            if (rental.itemSize != null)
+              Text(
+                'Größe: ${rental.itemSize}',
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+
+            SizedBox(height: 12),
+
+            Row(
+              children: [
+                Icon(CupertinoIcons.calendar, color: Colors.grey, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Bis: ${_formatDate(rental.endDate)}',
+                  style: TextStyle(
+                    color: isOverdue ? Color(0xFFFF453A) : Colors.white70,
+                    fontSize: 14,
+                    fontWeight: isOverdue ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+
+            if (isOverdue)
+              Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  '${DateTime.now().difference(rental.endDate).inDays} Tage überfällig',
+                  style: TextStyle(
+                    color: Color(0xFFFF453A),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              )
+            else if (daysUntilDue <= 7)
+              Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  daysUntilDue == 0
+                      ? 'Heute fällig'
+                      : daysUntilDue == 1
+                      ? 'Morgen fällig'
+                      : 'In $daysUntilDue Tagen fällig',
+                  style: TextStyle(
+                    color:
+                        daysUntilDue <= 3 ? Color(0xFFFF9500) : Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+
+            SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: CupertinoButton(
+                    color: Color(0xFF007AFF),
+                    borderRadius: BorderRadius.circular(12),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Verlängern'),
+                    onPressed: () => _extendRental(rental),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: CupertinoButton(
+                    color: Color(0xFFFF453A),
+                    borderRadius: BorderRadius.circular(12),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Zurückgeben'),
+                    onPressed: () => _returnItem(rental),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPastRentalCard(Rental rental) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            rental.itemName,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          if (rental.itemBrand != null)
+            Text(
+              rental.itemBrand!,
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+          if (rental.itemSize != null)
+            Text(
+              'Größe: ${rental.itemSize}',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(CupertinoIcons.calendar, color: Colors.grey, size: 16),
+              SizedBox(width: 8),
+              Text(
+                'Bis: ${_formatDate(rental.endDate)}',
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
   }
 }
